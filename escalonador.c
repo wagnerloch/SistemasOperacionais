@@ -23,13 +23,9 @@ struct processos {
     int memoria;    // Quantidade de memória necessária, vem do arquivo de entrada
     int prioridade; // Prioridade do Processo, vem do arquivo de entrada
     int pronto;     // Flag para marcar se o processo está pronto
-    int noSistema;
+    int noSistema;  // Flag para marcar se o processo está utilizando recursos do sistema
+    int ciclo;      // Contador de ciclo do processo
 } processos [100];
-
-struct fila {
-    int id;         // ID do Processo que está na fila
-    int naFila;
-} filaExecucao [100];
 
 int tempo;
 int slice;
@@ -67,6 +63,26 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+/**Lê o arquivo com as informações dos processos e retorna a quantidade de processos**/
+int lerArquivo (char *nomeArquivo) {
+    FILE *arquivo;
+    int i = 0;
+    if ((arquivo = fopen(nomeArquivo, "r")) == NULL) {
+        printf("Erro ao abrir arquivo '%s'!\n", nomeArquivo);
+    }
+    while(!feof(arquivo)) {
+        fscanf(arquivo, "%d,%d,%d,%d", &processos[i].chegada, &processos[i].duracao, &processos[i].memoria, &processos[i].prioridade);
+        processos[i].executando = 0;
+        processos[i].execucao = 0;
+        processos[i].pronto = 0;
+        processos[i].noSistema = 0;
+        processos[i].ciclo = 0;
+        i++;
+    }
+    fclose(arquivo);
+    return i;
+}
+
 /**Checa na fila de processos se há processos que ainda não foram concluídos**/
 int haProcessoNaFila () {
     int i;
@@ -78,6 +94,7 @@ int haProcessoNaFila () {
     return 0;
 }
 
+/**Função que incrementa o tempo do sistema e verifica as condições dos processos**/
 void rodarTempo () {
     int i;
     tempo += slice; // Incrementa o tempo
@@ -92,6 +109,15 @@ void rodarTempo () {
         }
         else if (processos[i].executando == 1) {
             processos[i].execucao += slice;     //Incrementa o tempo de execução do processo
+            processos[i].ciclo++;
+            if (processos[i].ciclo == 10) {
+                if (processos[i].prioridade > 0) {
+                    if (processos[i].prioridade < 4) {
+                        processos[i].prioridade++;
+                    }
+                }
+                processos[i].ciclo = 0;
+            }
         }
         if (tempo >= processos[i].chegada) {    //O Processo deve ser executado
             /*printf("CPU DISPONIVEL: %d\n", CPUdisponivel);
@@ -101,45 +127,32 @@ void rodarTempo () {
                         if (processos[j].prioridade >= processos[i].prioridade) {   //Pausa o processo e começa outro
                             printf("TROCA DE PROCESSO\n");
                             processos[j].executando = 0;
-                            CPUdisponivel++;
                             memoriaSistema += processos[j].memoria;
+                            if (memoriaSistema >= processos[i].memoria) {
+                                processos[i].executar = 0;
+                                processos[i].executando = 1;
+                                processos[i].lancamento = tempo;
+                                processos[i].noSistema = 1;
+                                break;
+                            }
                         }
                     }
                 }
             }*/
-            processos[i].executar = 1;  // Comando avisando que o processo deve ser executado
+            processos[i].executar = 1;  // Comando avisando que o processo deve ser executado  
         } 
     }    
     return;
 }
 
-/**Lê o arquivo com as informações dos processos e retorna a quantidade de processos**/
-int lerArquivo (char *nomeArquivo) {
-    FILE *arquivo;
-    int i = 0;
-    if ((arquivo = fopen(nomeArquivo, "r")) == NULL) {
-        printf("Erro ao abrir arquivo '%s'!\n", nomeArquivo);
-    }
-    while(!feof(arquivo)) {
-        fscanf(arquivo, "%d,%d,%d,%d", &processos[i].chegada, &processos[i].duracao, &processos[i].memoria, &processos[i].prioridade);
-        processos[i].executando = 0;
-        processos[i].execucao = 0;
-        processos[i].pronto = 0;
-        processos[i].noSistema = 0;
-        i++;
-    }
-    fclose(arquivo);
-    return i;
-}
-
-/**Função que analisa se o processo pode ser executado e o mando para execução**/
+/**Função que analisa se o processo pode ser executado e o manda para execução**/
 void receberProcessos () {
     int i = 0;
     //Executa o for em paralelo, levando em consideração o número de CPUs
     #pragma omp parallel for schedule(static, 1) num_threads(numCPU)
     for (i = 0; i < qtdProcessos; i++) {
-        if (CPUdisponivel > 0) {                                        //Existe CPU disponível
-            if (processos[i].executar == 1) {                           //Processo pronto para ser executado
+        if (processos[i].executar == 1) {                               //Processo pronto para ser executado
+            if (CPUdisponivel > 0) {                                    //Existe CPU disponível
                 if (processos[i].executando == 0) {                     //Processo não está sendo executado
                     if (processos[i].pronto == 0) {                     //Processo não está pronto
                         if (memoriaSistema > processos[i].memoria) {    //Existe memória disponível
@@ -154,6 +167,25 @@ void receberProcessos () {
                         }
                     }
                 }
+            } else {    // Não há CPU disponível, verificar prioridades entre os processos
+                /*for (int j = 0; j < qtdProcessos; j++) {    //Procura pelo primeiro processo que está executando
+                    if (processos[j].executando == 1) {
+                        if (processos[j].prioridade >= processos[i].prioridade) {   //Processo novo tem prioridade mais alta
+                            processos[j].executando = 0;    //Pausa o processo atual
+                            memoriaSistema += processos[j].memoria; //Devolve a memória ao Sistema
+                            processos[j].noSistema = 0;
+                            if (processos[i].pronto == 0) {
+                                if (memoriaSistema > processos[i].memoria) {
+                                    memoriaSistema -= processos[i].memoria;
+                                    processos[i].executando = 1;
+                                    processos[i].executar = 0;
+                                    processos[i].lancamento;
+                                    processos[i].noSistema;
+                                }
+                            }
+                        }
+                    }
+                }*/
             }
         }
     }

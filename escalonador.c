@@ -12,6 +12,8 @@
 #include <string.h>
 #include <omp.h>
 
+#define NMAX 1000	// Número máximo de processos
+
 /**Estrutura dos Processos**/
 struct processos {
     int executar;   // Flag para marcar que o processo está pronto para ser executado
@@ -25,7 +27,7 @@ struct processos {
     int pronto;     // Flag para marcar se o processo está pronto
     int noSistema;  // Flag para marcar se o processo está utilizando recursos do sistema
     int ciclo;      // Contador de ciclo do processo
-} processos [100];
+} processos [NMAX];
 
 int tempo;
 int slice;
@@ -43,8 +45,7 @@ void receberProcessos ();
 void executaProcesso (int processo);
 void gerarSaida ();
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     if (argc < 5) { //Argumentos não foram passados via linha de comando
         printf("Por favor, passar argumentos via linha de comando!\n");
         return 0;
@@ -60,6 +61,7 @@ int main(int argc, char *argv[])
         receberProcessos();
     }    
     gerarSaida();
+    printf("Tempo total para executar todos os processos: %d\n", tempo);
     return 0;
 }
 
@@ -92,6 +94,52 @@ int haProcessoNaFila () {
         }
     }
     return 0;
+}
+
+/**Função que analisa se o processo pode ser executado e o manda para execução**/
+void receberProcessos () {
+    int i = 0;
+    //Executa o for em paralelo, levando em consideração o número de CPUs
+    #pragma omp parallel for schedule(static, 1) num_threads(numCPU)
+    for (i = 0; i < qtdProcessos; i++) {
+        if (processos[i].executar == 1) {                               //Processo pronto para ser executado
+            if (CPUdisponivel > 0) {                                    //Existe CPU disponível
+                if (processos[i].executando == 0) {                     //Processo não está sendo executado
+                    if (processos[i].pronto == 0) {                     //Processo não está pronto
+                        if (memoriaSistema > processos[i].memoria) {    //Existe memória disponível
+                            if(processos[i].chegada <= tempo) {         //Processo não pode ser executado antes do seu tempo
+                                CPUdisponivel--;
+                                memoriaSistema -= processos[i].memoria;
+                                processos[i].executando = 1;            //Processo está executando
+                                processos[i].executar = 0;
+                                processos[i].lancamento = tempo;
+                                processos[i].noSistema = 1;
+                            }
+                        }
+                    }
+                }
+            } else {    // Não há CPU disponível, verificar prioridades entre os processos
+                /*for (int j = 0; j < qtdProcessos; j++) {    //Procura pelo primeiro processo que está executando
+                    if (processos[j].executando == 1) {
+                        if (processos[j].prioridade >= processos[i].prioridade) {   //Processo novo tem prioridade mais alta
+                            processos[j].executando = 0;    //Pausa o processo atual
+                            memoriaSistema += processos[j].memoria; //Devolve a memória ao Sistema
+                            processos[j].noSistema = 0;
+                            if (processos[i].pronto == 0) {
+                                if (memoriaSistema > processos[i].memoria) {
+                                    memoriaSistema -= processos[i].memoria;
+                                    processos[i].executando = 1;
+                                    processos[i].executar = 0;
+                                    processos[i].lancamento;
+                                    processos[i].noSistema;
+                                }
+                            }
+                        }
+                    }
+                }*/
+            }
+        }
+    }
 }
 
 /**Função que incrementa o tempo do sistema e verifica as condições dos processos**/
@@ -143,52 +191,6 @@ void rodarTempo () {
         } 
     }    
     return;
-}
-
-/**Função que analisa se o processo pode ser executado e o manda para execução**/
-void receberProcessos () {
-    int i = 0;
-    //Executa o for em paralelo, levando em consideração o número de CPUs
-    #pragma omp parallel for schedule(static, 1) num_threads(numCPU)
-    for (i = 0; i < qtdProcessos; i++) {
-        if (processos[i].executar == 1) {                               //Processo pronto para ser executado
-            if (CPUdisponivel > 0) {                                    //Existe CPU disponível
-                if (processos[i].executando == 0) {                     //Processo não está sendo executado
-                    if (processos[i].pronto == 0) {                     //Processo não está pronto
-                        if (memoriaSistema > processos[i].memoria) {    //Existe memória disponível
-                            if(processos[i].chegada <= tempo) {         //Processo não pode ser executado antes do seu tempo
-                                CPUdisponivel--;
-                                memoriaSistema -= processos[i].memoria;
-                                processos[i].executando = 1;            //Processo está executando
-                                processos[i].executar = 0;
-                                processos[i].lancamento = tempo;
-                                processos[i].noSistema = 1;
-                            }
-                        }
-                    }
-                }
-            } else {    // Não há CPU disponível, verificar prioridades entre os processos
-                /*for (int j = 0; j < qtdProcessos; j++) {    //Procura pelo primeiro processo que está executando
-                    if (processos[j].executando == 1) {
-                        if (processos[j].prioridade >= processos[i].prioridade) {   //Processo novo tem prioridade mais alta
-                            processos[j].executando = 0;    //Pausa o processo atual
-                            memoriaSistema += processos[j].memoria; //Devolve a memória ao Sistema
-                            processos[j].noSistema = 0;
-                            if (processos[i].pronto == 0) {
-                                if (memoriaSistema > processos[i].memoria) {
-                                    memoriaSistema -= processos[i].memoria;
-                                    processos[i].executando = 1;
-                                    processos[i].executar = 0;
-                                    processos[i].lancamento;
-                                    processos[i].noSistema;
-                                }
-                            }
-                        }
-                    }
-                }*/
-            }
-        }
-    }
 }
 
 /**Função que gera a saída do sistema conforme requisito**/
